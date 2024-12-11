@@ -15,6 +15,7 @@ from discord.ext import tasks
 import asyncio
 from typing import Optional
 from pydantic import ConfigDict
+import logging
 
 load_dotenv()
 
@@ -30,6 +31,8 @@ GUILD_ID = int(guild_id)
 # Constants
 PDT_CONTRACT = "0xeff2A458E464b07088bDB441C21A42AB4b61e07E"
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+
+logger = logging.getLogger(__name__)
 
 class PriceTrackerTool(BaseTool):
     """
@@ -102,6 +105,7 @@ class PriceTrackerTool(BaseTool):
             price = data[PDT_CONTRACT.lower()]['usd']
             change_24h = data[PDT_CONTRACT.lower()]['usd_24h_change']
 
+            logger.info(f"Price data fetched: ${price:.4f} ({change_24h:+.2f}%)")
             print(f"\nPrice update: ${price:.4f} (24h change: {change_24h:+.2f}%)")
             # Update bot's own role color
             try:
@@ -113,17 +117,36 @@ class PriceTrackerTool(BaseTool):
                         print("Bot member not found in guild")
                         return
                     
-                    # Update bot's nickname and role color
-                    await bot_member.edit(nick=f"PDT ${price:.4f} {'📈' if change_24h >= 0 else '📉'}")
+                    # Debug role hierarchy
+                    logger.debug("\nRole hierarchy:")
+                    for role in sorted(guild.roles, key=lambda r: r.position, reverse=True):
+                        logger.debug(f"- {role.name} (position: {role.position})")
+
+                    # Debug bot permissions
+                    logger.debug("\nBot permissions:")
+                    for perm, value in bot_member.guild_permissions:
+                        if value:
+                            logger.debug(f"- {perm}")
+
+                    logger.info(f"Bot's role position: {bot_member.top_role.position}")
+                    
+                    # Update bot's nickname
+                    try:
+                        await bot_member.edit(nick=f"PDT ${price:.4f} {'📈' if change_24h >= 0 else '📉'}")
+                        print(f"Updated nickname with current price")
+                    except discord.Forbidden:
+                        print("\nERROR: Cannot update nickname!")
+                        print("Please make sure the bot has 'Change Nickname' permission")
+                    except Exception as e:
+                        print(f"Error updating nickname: {e}")
                     
                     await bot_member.top_role.edit(
                         color=discord.Color.from_rgb(45, 180, 0) if change_24h >= 0 else discord.Color.from_rgb(220, 0, 0)
                     )
                     print(f"Updated nickname and role color")
             except Exception as e:
-                print(f"Failed to update role: {type(e).__name__}: {str(e)}")
-                print("\nTo fix this: Move the bot's role higher in the server's role list (Server Settings -> Roles)")
-
+                print(f"Error accessing guild: {e}")
+                
             print("Updating status...")
             
             status_text = f"24h: {change_24h:+.2f}%"
@@ -137,6 +160,7 @@ class PriceTrackerTool(BaseTool):
                 )
             )
             print(f"Status updated to: {status_text}")
+            logger.info(f"Status updated: {status_text}")
             
             print(f"Next update in {self.update_interval} seconds")
             print("Successfully updated status")
@@ -154,6 +178,22 @@ class PriceTrackerTool(BaseTool):
             print(f'Bot logged in as {self._discord_client.user}')
             print(f"Bot is in guilds: {[g.name for g in self._discord_client.guilds]}")
             if not self._price_update_loop:
+                # Check bot's role position
+                for guild in self._discord_client.guilds:
+                    bot_member = guild.get_member(self._discord_client.user.id)
+                    if bot_member:
+                        bot_role = bot_member.top_role
+                        logger.info(f"\nChecking bot role in {guild.name}:")
+                        logger.info(f"Bot role: {bot_role.name} (position: {bot_role.position})")
+                        
+                        # Check if any roles are above bot's role
+                        higher_roles = [r for r in guild.roles if r.position > bot_role.position]
+                        if higher_roles:
+                            logger.warning("WARNING: These roles are above the bot's role:")
+                            for role in higher_roles:
+                                logger.warning(f"- {role.name} (position: {role.position})")
+                            logger.warning("Consider moving the bot's role higher for better functionality")
+
                 # First clear any existing activity
                 await self._discord_client.change_presence(activity=None, status=discord.Status.online)
                 await asyncio.sleep(1)  # Wait a second

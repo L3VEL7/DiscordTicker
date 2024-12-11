@@ -102,6 +102,16 @@ The bot should now:
 - Change role color based on price movement
 - Show 24h change in its status
 
+## Debug Mode
+
+To run the bot in debug mode with more detailed logging:
+
+```bash
+# Set DEBUG environment variable
+set DEBUG=1  # Windows
+export DEBUG=1  # Linux/Mac
+```
+
 ## Deploy to Railway
 
 You can also deploy the bot to [Railway](https://railway.app) for 24/7 uptime:
@@ -123,6 +133,7 @@ You can also deploy the bot to [Railway](https://railway.app) for 24/7 uptime:
      ```
      DISCORD_TOKEN=your_discord_bot_token
      GUILD_ID=your_discord_server_id
+     DEBUG=0  # Set to 1 for debug logging
      ```
 
 5. Your bot will automatically deploy and start running
