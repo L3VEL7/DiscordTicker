@@ -1,7 +1,5 @@
-agency-swarm
 discord.py>=2.3.2
-web3
+web3>=6.11.3
 requests>=2.31.0
 python-dotenv>=1.0.0
-setuptools
-web3>=6.11.3 
+setuptools 
