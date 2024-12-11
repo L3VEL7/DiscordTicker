@@ -81,6 +81,36 @@ class PriceTrackerTool(BaseTool):
         self._discord_client = discord.Client(intents=intents)
         self.setup_discord_bot()
 
+    async def check_bot_permissions(self, guild):
+        """Check if bot has all required permissions"""
+        bot_member = guild.get_member(self._discord_client.user.id)
+        bot_role = bot_member.top_role
+        
+        print("\nChecking bot permissions in detail:")
+        print(f"Bot's highest role: {bot_role.name} (position {bot_role.position})")
+        
+        # Check role hierarchy
+        price_role = discord.utils.get(guild.roles, name=ROLE_NAME)
+        if price_role and bot_role.position < price_role.position:
+            print("\nERROR: Bot's role is below the price role!")
+            print(f"Bot role '{bot_role.name}' position: {bot_role.position}")
+            print(f"Price role '{price_role.name}' position: {price_role.position}")
+            print("\nTo fix this:")
+            print("1. Go to Server Settings -> Roles")
+            print("2. Drag the 'PDTbot' role ABOVE the 'PDT Price' role")
+            return False
+
+        print("Current permissions:")
+        permissions = {
+            'manage_roles': bot_member.guild_permissions.manage_roles,
+            'change_nickname': bot_member.guild_permissions.change_nickname,
+            'view_channel': bot_member.guild_permissions.view_channel
+        }
+        for perm, value in permissions.items():
+            print(f"- {perm}: {'✅' if value else '❌'}")
+        
+        return all(permissions.values())  # Return True only if we have all permissions
+
     def create_price_loop(self):
         loop = tasks.loop(seconds=self.update_interval)(self.price_update_loop_func)
         return loop
@@ -115,20 +145,50 @@ class PriceTrackerTool(BaseTool):
             # Get the guild and role
             await self.ensure_guild_access()
             guild = self._discord_client.get_guild(GUILD_ID)
+            
+            # Check permissions before proceeding
+            has_permissions = await self.check_bot_permissions(guild)
+            if not has_permissions:
+                print("\nPlease fix the bot's permissions before continuing.")
+                print("The bot needs: Manage Roles, Change Nickname, View Channels")
+                return
+
+            # Debug: Print bot's role info
+            bot_member = guild.get_member(self._discord_client.user.id)
+            bot_role = bot_member.top_role
+            print("\nBot role information:")
+            print(f"Role name: {bot_role.name}")
+            print(f"Role position: {bot_role.position}")
+            print(f"Bot is server owner: {guild.owner_id == self._discord_client.user.id}")
+            print(f"Role permissions: {bot_role.permissions}")
+            print("\nServer roles (top to bottom):")
+            for r in sorted(guild.roles, key=lambda x: x.position, reverse=True):
+                print(f"- {r.name} (position: {r.position})")
+
             role = discord.utils.get(guild.roles, name=ROLE_NAME)
 
             # Create role if it doesn't exist
             if not role:
                 try:
                     print(f"Creating role '{ROLE_NAME}'...")
-                    # Check bot's permissions
+                    print("Checking bot's role position...")
+                    # Check specific required permissions
                     bot_member = guild.get_member(self._discord_client.user.id)
-                    if not bot_member.guild_permissions.administrator:
-                        print("\nERROR: Bot needs Administrator permissions!")
-                        print("Please reinvite the bot with Administrator permissions:")
-                        print("1. Go to https://discord.com/developers/applications")
-                        print("2. Select your bot -> OAuth2 -> URL Generator")
-                        print("3. Select 'Administrator' under Bot Permissions")
+                    required_permissions = {
+                        'manage_roles': 'Manage Roles',
+                        'change_nickname': 'Change Nickname',
+                        'view_channel': 'View Channels'
+                    }
+                    missing_permissions = [perm_name for perm, perm_name in required_permissions.items() 
+                                         if not getattr(bot_member.guild_permissions, perm)]
+                    if missing_permissions:
+                        print("\nERROR: Bot is missing required permissions!")
+                        print(f"Missing: {', '.join(missing_permissions)}")
+                        print("\nTo fix this:")
+                        print("1. Go to your Discord server settings")
+                        print("2. Go to Roles")
+                        print("3. Find and edit the bot's role")
+                        print("4. Enable the following permissions: Manage Roles, Change Nickname, View Channels")
                     role = await guild.create_role(
                         name=ROLE_NAME,
                         hoist=True,  # This makes the role show separately in member list
@@ -139,16 +199,35 @@ class PriceTrackerTool(BaseTool):
                     await role.edit(position=len(guild.roles) - 1)
                     bot_member = guild.get_member(self._discord_client.user.id)
                     await bot_member.add_roles(role)
+                    print(f"Successfully created role '{ROLE_NAME}' at position {role.position}")
                 except discord.errors.Forbidden as e:
-                    print("\nERROR: Bot doesn't have permission to manage roles!")
-                    print("Please make sure the bot has Administrator permissions.")
-                    raise e
+                    print("\nERROR: Bot doesn't have the required permissions!")
+                    print("\nTo fix this, either:")
+                    print("1. Fix the role hierarchy:")
+                    print("   - Go to Server Settings -> Roles")
+                    print("   - Find the bot's role (usually named 'PDTbot')")
+                    print("   - Drag it ABOVE where the 'PDT Price' role will be created")
+                    print("   - The order should be:")
+                    print("     PDTbot")
+                    print("     PDT Price")
+                    print("     @everyone")
+                    print(f"\nError details: {str(e)}")
+                    print("2. Reinvite the bot with the correct permissions using the URL from the bot's developer portal")
                 except Exception as e:
                     print(f"Error creating role: {e}")
                     raise e
 
             # Update role color based on price change
             color = discord.Color.green() if change_24h >= 0 else discord.Color.red()
+            print(f"\nAttempting to edit role...")
+            
+            # Double check role hierarchy before editing
+            if bot_role.position < role.position:
+                print(f"\nERROR: Cannot edit role - bot's role ({bot_role.position}) is below target role ({role.position})")
+                print("Please move the bot's role higher in the server's role list")
+                return
+            
+            print(f"\nUpdating role '{role.name}' (position: {role.position})")
             await role.edit(color=color)
 
             # Update role name with current price
@@ -171,7 +250,13 @@ class PriceTrackerTool(BaseTool):
             self._previous_price = price
 
         except Exception as e:
-            print(f"Error updating price: {e}")
+            if isinstance(e, discord.errors.Forbidden):
+                print("\nERROR: Bot lacks required permissions!")
+                print("Please ensure:")
+                print("1. Bot's role is ABOVE the PDT Price role")
+                print("2. Bot has Manage Roles permission")
+                print("3. Bot has Change Nickname permission")
+                print("4. Bot has View Channels permission")
 
     def setup_discord_bot(self):
         print("\nChecking Discord permissions...")
@@ -184,13 +269,27 @@ class PriceTrackerTool(BaseTool):
                 self.price_update_loop.start()
             
             # Check bot permissions
+            required_permissions = {
+                'manage_roles': 'Manage Roles',
+                'change_nickname': 'Change Nickname',
+                'view_channel': 'View Channels'
+            }
+
             for guild in self._discord_client.guilds:
                 bot_member = guild.get_member(self._discord_client.user.id)
-                if not bot_member.guild_permissions.administrator:
-                    print(f"\nWARNING: Bot doesn't have Administrator permissions in {guild.name}")
-                    print("Some features may not work correctly.")
-                    print("Please reinvite the bot with Administrator permissions.")
-
+                missing_permissions = [perm_name for perm, perm_name in required_permissions.items() 
+                                     if not getattr(bot_member.guild_permissions, perm, False)]
+                if missing_permissions:
+                    print(f"\nWARNING: Bot is missing permissions in {guild.name}")
+                    print(f"Missing: {', '.join(missing_permissions)}")
+                    print("\nTo fix this:")
+                    print("1. Go to Server Settings -> Roles")
+                    print("2. Find the bot's role (usually named 'PDTbot')")
+                    print("3. Enable these permissions:")
+                    print("Current permissions:")
+                    for perm_name in missing_permissions:
+                        print(f"   - {perm_name}")
+ 
     def run(self):
         """
         Start the Discord bot and price tracking
@@ -205,5 +304,6 @@ class PriceTrackerTool(BaseTool):
         print("Starting bot...")
         print(f"Using guild ID: {GUILD_ID}")
         
+        print("Connecting to Discord...")
         self._discord_client.run(DISCORD_TOKEN)
         return "Bot started successfully" 
