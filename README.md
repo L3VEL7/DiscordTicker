@@ -102,6 +102,33 @@ The bot should now:
 - Change role color based on price movement
 - Show 24h change in its status
 
+## Deploy to Railway
+
+You can also deploy the bot to [Railway](https://railway.app) for 24/7 uptime:
+
+1. Fork this repository to your GitHub account
+
+2. Create a Railway account:
+   - Go to [Railway.app](https://railway.app)
+   - Sign up with your GitHub account
+
+3. Create a new project:
+   - Click "New Project"
+   - Select "Deploy from GitHub repo"
+   - Choose your forked repository
+
+4. Add environment variables:
+   - Go to your project's "Variables" tab
+   - Add the following variables:
+     ```
+     DISCORD_TOKEN=your_discord_bot_token
+     GUILD_ID=your_discord_server_id
+     ```
+
+5. Your bot will automatically deploy and start running
+   - Railway will handle all the dependencies and deployment
+   - The bot will run 24/7 with automatic updates
+
 ## Troubleshooting
 
 - **Bot not updating role color**: Make sure the bot's role is high enough in the server's role hierarchy
