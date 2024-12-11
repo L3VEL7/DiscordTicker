@@ -38,7 +38,7 @@ class PriceTrackerTool(BaseTool):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
     update_interval: int = Field(
-        default=15,  # 15 seconds for testing
+        default=300,  # 5 minutes - production interval
         description="Interval in seconds between price updates"
     )
     
@@ -96,33 +96,47 @@ class PriceTrackerTool(BaseTool):
             print("Fetching price data...")
             response = requests.get(
                 "https://api.coingecko.com/api/v3/simple/token_price/base?contract_addresses=0xeff2a458e464b07088bdb441c21a42ab4b61e07e&vs_currencies=usd&include_24hr_change=true"
-            )
+            , timeout=10)  # Add timeout to prevent hanging
             data = response.json()
             
             price = data[PDT_CONTRACT.lower()]['usd']
             change_24h = data[PDT_CONTRACT.lower()]['usd_24h_change']
 
-            print(f"\nPrice change: {change_24h:+.2f}%")
+            print(f"\nPrice update: ${price:.4f} (24h change: {change_24h:+.2f}%)")
+            # Update bot's own role color
+            try:
+                guild = self._discord_client.get_guild(GUILD_ID)
+                if guild:
+                    # Get bot's role
+                    bot_member = guild.get_member(self._discord_client.user.id)
+                    if not bot_member:
+                        print("Bot member not found in guild")
+                        return
+                    
+                    # Update bot's nickname and role color
+                    await bot_member.edit(nick=f"PDT ${price:.4f} {'📈' if change_24h >= 0 else '📉'}")
+                    
+                    await bot_member.top_role.edit(
+                        color=discord.Color.from_rgb(45, 180, 0) if change_24h >= 0 else discord.Color.from_rgb(220, 0, 0)
+                    )
+                    print(f"Updated nickname and role color")
+            except Exception as e:
+                print(f"Failed to update role: {type(e).__name__}: {str(e)}")
+                print("\nTo fix this: Move the bot's role higher in the server's role list (Server Settings -> Roles)")
+
             print("Updating status...")
             
-            # Update bot's presence with a simpler status
-            status_text = f"PDT ${price:.4f} ({change_24h:+.2f}%)"
-            try:
-                # First clear any existing activity
-                await self._discord_client.change_presence(activity=None, status=discord.Status.online)
-                await asyncio.sleep(1)  # Wait a second
-
-                # Then set new activity
-                await self._discord_client.change_presence(
-                    status=discord.Status.online,
-                    activity=discord.Activity(
-                        type=discord.ActivityType.playing,
-                        name=status_text
-                    )
+            status_text = f"24h: {change_24h:+.2f}%"
+            
+            # Then set new activity
+            await self._discord_client.change_presence(
+                status=discord.Status.online,
+                activity=discord.Activity(
+                    type=discord.ActivityType.watching,
+                    name=status_text
                 )
-                print(f"Status updated to: {status_text}")
-            except Exception as e:
-                print(f"Failed to update status: {e}")
+            )
+            print(f"Status updated to: {status_text}")
             
             print(f"Next update in {self.update_interval} seconds")
             print("Successfully updated status")
@@ -145,18 +159,14 @@ class PriceTrackerTool(BaseTool):
                 await asyncio.sleep(1)  # Wait a second
 
                 # Then set initial activity
-                try:
-                    # Set initial presence
-                    await self._discord_client.change_presence(
-                        status=discord.Status.online,
-                        activity=discord.Activity(
-                            type=discord.ActivityType.playing,
-                            name="Loading PDT Price..."
-                        )
+                await self._discord_client.change_presence(
+                    status=discord.Status.online,
+                    activity=discord.Activity(
+                        type=discord.ActivityType.watching,
+                        name="Loading PDT Tracker..."
                     )
-                    print("Initial status set")
-                except Exception as e:
-                    print(f"Failed to set initial status: {e}")
+                )
+                print("Initial status set")
                     
                 # Then start the price update loop
                 self.price_update_loop = self.create_price_loop()
