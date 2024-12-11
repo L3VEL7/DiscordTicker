@@ -64,13 +64,11 @@ pip install -r requirements.txt
 ```env
 DISCORD_TOKEN=your_discord_bot_token
 GUILD_ID=your_discord_server_id
-OPENAI_API_KEY=your_openai_api_key  # Optional, only needed for agency features
 ```
 
 2. Replace the placeholders with your actual values:
 - `your_discord_bot_token`: The token from Discord Developer Portal
 - `your_discord_server_id`: Your Discord server (guild) ID
-- `your_openai_api_key`: Your OpenAI API key (optional)
 
 ### Step 4: Invite Bot to Server
 
