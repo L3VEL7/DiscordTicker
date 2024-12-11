@@ -131,19 +131,13 @@ class PriceTrackerTool(BaseTool):
                     logger.info(f"Bot's role position: {bot_member.top_role.position}")
                     
                     # Update bot's nickname
-                    try:
-                        await bot_member.edit(nick=f"PDT ${price:.4f} {'📈' if change_24h >= 0 else '📉'}")
-                        print(f"Updated nickname with current price")
-                    except discord.Forbidden:
-                        print("\nERROR: Cannot update nickname!")
-                        print("Please make sure the bot has 'Change Nickname' permission")
-                    except Exception as e:
-                        print(f"Error updating nickname: {e}")
-                    
-                    await bot_member.top_role.edit(
-                        color=discord.Color.from_rgb(45, 180, 0) if change_24h >= 0 else discord.Color.from_rgb(220, 0, 0)
+                    await bot_member.edit(
+                        nick=f"PDT ${price:.4f} {'📈' if change_24h >= 0 else '📉'}"
                     )
-                    print(f"Updated nickname and role color")
+                    print(f"Updated nickname with current price")
+                    logger.info(f"Updated nickname to: PDT ${price:.4f} "
+                              f"{'📈' if change_24h >= 0 else '📉'}")
+
             except Exception as e:
                 print(f"Error accessing guild: {e}")
                 
