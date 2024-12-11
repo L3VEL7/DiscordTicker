@@ -30,7 +30,6 @@ GUILD_ID = int(guild_id)
 # Constants
 PDT_CONTRACT = "0xeff2A458E464b07088bDB441C21A42AB4b61e07E"
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-ROLE_NAME = "PDT Price"
 
 class PriceTrackerTool(BaseTool):
     """
@@ -39,7 +38,7 @@ class PriceTrackerTool(BaseTool):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
     update_interval: int = Field(
-        default=300,  # 5 minutes
+        default=60,  # 1 minute - more frequent updates
         description="Interval in seconds between price updates"
     )
     
@@ -133,6 +132,7 @@ class PriceTrackerTool(BaseTool):
     async def price_update_loop_func(self):
         try:
             # Fetch current price and 24h change from Coingecko
+            print(f"\n[{discord.utils.utcnow()}] Running price update...")
             print("Fetching price data...")
             response = requests.get(
                 "https://api.coingecko.com/api/v3/simple/token_price/base?contract_addresses=0xeff2a458e464b07088bdb441c21a42ab4b61e07e&vs_currencies=usd&include_24hr_change=true"
@@ -153,6 +153,7 @@ class PriceTrackerTool(BaseTool):
                 print("The bot needs: Manage Roles, Change Nickname, View Channels")
                 return
 
+            # Update bot's role name and color
             # Debug: Print bot's role info
             bot_member = guild.get_member(self._discord_client.user.id)
             bot_role = bot_member.top_role
@@ -160,10 +161,6 @@ class PriceTrackerTool(BaseTool):
             print(f"Role name: {bot_role.name}")
             print(f"Role position: {bot_role.position}")
             print(f"Bot is server owner: {guild.owner_id == self._discord_client.user.id}")
-            print(f"Role permissions: {bot_role.permissions}")
-            print("\nServer roles (top to bottom):")
-            for r in sorted(guild.roles, key=lambda x: x.position, reverse=True):
-                print(f"- {r.name} (position: {r.position})")
 
             role = discord.utils.get(guild.roles, name=ROLE_NAME)
 
@@ -192,6 +189,7 @@ class PriceTrackerTool(BaseTool):
                     role = await guild.create_role(
                         name=ROLE_NAME,
                         hoist=True,  # This makes the role show separately in member list
+                        color=discord.Color.from_rgb(128, 128, 128),  # Start with neutral gray
                         mentionable=True,
                         reason="PDT Price Tracking Role"
                     )
@@ -218,34 +216,31 @@ class PriceTrackerTool(BaseTool):
                     raise e
 
             # Update role color based on price change
-            color = discord.Color.green() if change_24h >= 0 else discord.Color.red()
-            print(f"\nAttempting to edit role...")
+            if change_24h >= 0:
+                color = discord.Color.from_rgb(0, 255, 0)  # Bright green
+            else:
+                color = discord.Color.from_rgb(255, 0, 0)  # Bright red
+
+            print(f"\nPrice change: {change_24h:+.2f}%")
+            print("Updating status...")
             
-            # Double check role hierarchy before editing
-            if bot_role.position < role.position:
-                print(f"\nERROR: Cannot edit role - bot's role ({bot_role.position}) is below target role ({role.position})")
-                print("Please move the bot's role higher in the server's role list")
-                return
-            
-            print(f"\nUpdating role '{role.name}' (position: {role.position})")
-            await role.edit(color=color)
-
-            # Update role name with current price
-            new_name = f"PDT: ${price:.4f}"
-            await role.edit(name=new_name)
-
-            # Update bot's nickname to match role name
-            bot_member = guild.get_member(self._discord_client.user.id)
-            await bot_member.edit(nick=new_name)
-
-            # Update bot's status with 24h change
-            status_text = f"24h: {change_24h:+.2f}%"
+            # Update bot's status with current price and change
+            status_text = f"${price:.4f} ({change_24h:+.2f}%)"
             await self._discord_client.change_presence(
                 activity=discord.Activity(
                     type=discord.ActivityType.watching,
-                    name=status_text
-                )
+                    name=status_text,
+                    details=f"24h Change: {change_24h:+.2f}%",
+                    state="PDT Price Tracker",
+                    large_image="https://i.imgur.com/xyz.png"  # Optional: Add PDT logo URL here
+                ),
+                status=discord.Status.online
             )
+            
+            print(f"Status updated to: {status_text}")
+            print(f"Next update in {self.update_interval} seconds")
+            
+            print("Successfully updated status")
 
             self._previous_price = price
 
@@ -260,13 +255,24 @@ class PriceTrackerTool(BaseTool):
 
     def setup_discord_bot(self):
         print("\nChecking Discord permissions...")
+        
         @self._discord_client.event
         async def on_ready():
             print(f'Bot logged in as {self._discord_client.user}')
             print(f"Bot is in guilds: {[g.name for g in self._discord_client.guilds]}")
             if not self._price_update_loop:
-                self.price_update_loop = self.create_price_loop()
+                self.price_update_loop = tasks.loop(seconds=self.update_interval)(self.price_update_loop_func)
                 self.price_update_loop.start()
+                
+            # Set initial presence
+            await self._discord_client.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.watching,
+                    name="Loading price..."
+                ),
+                status=discord.Status.online
+            )
+            print("Initial status set")
             
             # Check bot permissions
             required_permissions = {
